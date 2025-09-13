@@ -6,9 +6,7 @@ Este proyecto implementa una aplicación de escritorio que permite:
 - Calcular **dominio, recorrido, intersecciones con los ejes**.  
 - Evaluar la función en un punto con **explicación paso a paso**.  
 - Generar un **gráfico claro y profesional** con la curva, sus intersecciones y el punto evaluado resaltado.  
-- Guardar capturas del gráfico en la carpeta `assets/screenshots/`.  
-
----
+- Guardar capturas del gráfico en la ubicación que el usuario elija.  
 
 ## Instalación y ejecución
 
@@ -32,40 +30,27 @@ Este proyecto implementa una aplicación de escritorio que permite:
 
 4. Ejecuta la aplicación:  
    ```bash
-   cd src
-   python -m function_analyzer.main
+   python src/function_analyzer/main.py
    ```
-
----
-
+   
 ## Tecnologías utilizadas
 - **Python 3.10+**  
 - **CustomTkinter** → interfaz gráfica moderna con modo oscuro  
 - **SymPy** → análisis matemático simbólico (dominio, rango, raíces)  
-- **Matplotlib** → gráficos sin uso de NumPy  
+- **Matplotlib** → gráficos
 
----
-
-## Estructura del proyecto
+## Estructura del proyecto (actual)
 
 ```
 EID-1-Funciones/
 ├─ src/
 │  └─ function_analyzer/
-│     ├─ __init__.py
-│     ├─ main.py        # GUI con CustomTkinter
-│     ├─ analysis.py    # Lógica matemática (dominio, rango, intersecciones, evaluación paso a paso)
-│     ├─ plotting.py    # Gráficos de funciones con Matplotlib
-│     └─ utils.py       # Funciones auxiliares (formato de conjuntos, potencias, etc.)
-├─ assets/
-│  └─ screenshots/      # Carpeta donde se guardan las capturas de los gráficos
+│     └─ main.py        # Archivo único con toda la lógica y GUI
 ├─ requirements.txt     # Dependencias del proyecto
 └─ README.md            # Documentación
 ```
 
----
-
-## Ejemplos de uso (para más ejemplos revisar examples/demo_inputs)
+## Ejemplos de uso
 
 ### Ejemplo 1: cuadrática  
 **Entrada**:  
@@ -83,9 +68,7 @@ EID-1-Funciones/
   f(3) = 9 - 4
   Valor numerico: 5
   ```
-
----
-
+  
 ### Ejemplo 2: raíz cuadrada  
 **Entrada**:  
 - f(x) = `sqrt(x-1)`  
@@ -102,5 +85,3 @@ EID-1-Funciones/
   f(5) = √4
   Valor numerico: 2
   ```
-
----
