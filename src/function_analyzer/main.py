@@ -47,9 +47,9 @@ def stringify_points(points: List[Tuple[float, float]]) -> str:
 # Formato legible para intervalos, uniones y conjuntos
 def fmt_set(s) -> str:
     try:
-        if s == EmptySet:
+        if s == EmptySet: # Si es el conjunto vacio, devolver ∅
             return "∅"
-        if s == Reals or s == SymReals:
+        if s == Reals or s == SymReals: # Si es el conjunto de los numeros reales, devolver ℝ
             return "ℝ"
         if isinstance(s, Interval):
             a = "-∞" if s.start == -oo else str(s.start)
@@ -74,7 +74,7 @@ def pretty_power(expr: str) -> str:
         "**0": "⁰",
     }
     for k, v in replacements.items():
-        expr = expr.replace(k, v)
+        expr = expr.replace(k, v) # Reemplaza los caracteres por los superindices Unicode
     return expr
 
 
@@ -88,7 +88,7 @@ x = Symbol("x")
 class FunctionAnalyzer:
     # Esta clase analiza funciones matematicas dadas como texto
     def __init__(self, func_str: str):
-        func_str = (func_str or "").strip()
+        func_str = (func_str or "").strip() # Elimina espacios al inicio y al final
         if not func_str:
             raise ValueError("La funcion no puede estar vacia.")
         # sympify convierte el string en expresion matematica
@@ -99,7 +99,7 @@ class FunctionAnalyzer:
     # Dominio de la funcion
     def domain(self):
         try:
-            return continuous_domain(self.f, x, Reals)
+            return continuous_domain(self.f, x, Reals) # Calcula el dominio de la funcion
         except Exception:
             return Reals
 
@@ -108,7 +108,7 @@ class FunctionAnalyzer:
         if dom is None:
             dom = self.domain()
         try:
-            return function_range(self.f, x, dom)
+            return function_range(self.f, x, dom) # Calcula el recorrido de la funcion
         except Exception:
             return None
 
@@ -185,21 +185,85 @@ def _infer_window(dom) -> Tuple[float, float]:
     return a, b
 
 # Genera puntos para dibujar la funcion
+from sympy import Interval, Union
+
+def _intervals_from_domain(dom):
+    # devuelve una lista de Interval para muestrear por tramos
+    if isinstance(dom, Interval):
+        return [dom]
+    if isinstance(dom, Union):
+        return [d for d in dom.args if isinstance(d, Interval)]
+    # fallback si no es intervalo/union (ej: Reals): una sola ventana
+    return [Interval(-10, 10, False, False)]
+
+def _clip_to_window(iv: Interval, win_a: float, win_b: float) -> Optional[Interval]:
+    # recorta el intervalo al rectangulo de dibujo [win_a, win_b]
+    a = float(iv.start) if iv.start.is_finite else win_a
+    b = float(iv.end)   if iv.end.is_finite   else win_b
+    a = max(a, win_a)
+    b = min(b, win_b)
+    if a >= b:
+        return None
+    # conservar apertura/cierre de extremos
+    left_open = iv.left_open or a > float(iv.start) if iv.start.is_finite else iv.left_open
+    right_open = iv.right_open or b < float(iv.end) if iv.end.is_finite else iv.right_open
+    return Interval(a, b, left_open, right_open)
+
 def _sample(expr, dom, n=600) -> Tuple[List[float], List[float]]:
+    # muestrea por tramos del dominio y mete NaN entre tramos
+    Y_LIM = 1e3       # descartar valores gigantes (corta picos verticales)
+    JUMP_LIM = 1e3    # corta cuando hay salto grande entre puntos
+
     xs: List[float] = []
     ys: List[float] = []
-    a, b = _infer_window(dom)
-    step = (b - a) / float(n)
-    for i in range(n + 1):
-        xi = a + i * step
-        try:
-            yi = N(expr.subs({"x": xi}))
-            if yi.is_real:
-                xs.append(float(xi))
-                ys.append(float(yi))
-        except Exception:
-            xs.append(float(xi))
-            ys.append(float("nan"))
+
+    win_a, win_b = _infer_window(dom)
+    intervals = _intervals_from_domain(dom)
+
+    # repartir puntos de forma simple por tramo
+    n_per = max(60, n // max(1, len(intervals)))
+
+    for iv in intervals:
+        ivc = _clip_to_window(iv, win_a, win_b)
+        if ivc is None:
+            continue
+
+        a = float(ivc.start)
+        b = float(ivc.end)
+
+        # evitar muestrear exactamente en extremos abiertos
+        eps = (b - a) / (n_per * 20.0) if b > a else 0.0
+        if ivc.left_open:  a += eps
+        if ivc.right_open: b -= eps
+        if not (b > a):
+            continue
+
+        step = (b - a) / float(n_per)
+        prev_y = None
+
+        for i in range(n_per + 1):
+            xi = a + i * step
+            try:
+                yi = N(expr.subs({"x": xi}))
+                if (not yi.is_real) or abs(float(yi)) > Y_LIM:
+                    xs.append(float(xi)); ys.append(float("nan"))
+                    prev_y = None
+                else:
+                    yf = float(yi)
+                    if (prev_y is not None) and abs(yf - prev_y) > JUMP_LIM:
+                        # salto brusco: cortamos la linea
+                        xs.append(float(xi)); ys.append(float("nan"))
+                        prev_y = None
+                    else:
+                        xs.append(float(xi)); ys.append(yf)
+                        prev_y = yf
+            except Exception:
+                xs.append(float(xi)); ys.append(float("nan"))
+                prev_y = None
+
+        # separador entre tramos (evita unir a traves de 0 en 1/x)
+        xs.append(float("nan")); ys.append(float("nan"))
+
     return xs, ys
 
 # Crea figura de Matplotlib con funcion y puntos clave
@@ -208,23 +272,25 @@ def build_figure(expr, dom, xints: List[float], yint: Optional[float], eval_poin
     ax = fig.add_subplot(111)
 
     xs, ys = _sample(expr, dom)
-    ax.plot(xs, ys, linewidth=2, label="f(x)")
+    ax.plot(xs, ys, linewidth=2, label="f(x)")  # curva principal
 
-    # Ejes
-    ax.axhline(0, linewidth=1)
-    ax.axvline(0, linewidth=1)
+    # ejes en plomo
+    axis_color = "#8a8a8a"  # gris plomo
+    ax.axhline(0, linewidth=1, color=axis_color, alpha=0.9)
+    ax.axvline(0, linewidth=1, color=axis_color, alpha=0.9)
 
-    # Raices
+    # raices (naranja)
     for r in xints:
-        ax.plot([r], [0], marker="o", markersize=6, label=None)
+        ax.plot([r], [0], marker="o", markersize=6, color="#ff7f0e", label=None)
 
-    # Corte con Y
+    # corte con Y (verde)
     if yint is not None:
-        ax.plot([0], [yint], marker="o", markersize=6, label=None)
+        ax.plot([0], [yint], marker="o", markersize=6, color="#2ca02c", label=None)
 
-    # Punto evaluado
+    # punto evaluado (rojo) — distinto a la curva
     if eval_point is not None:
-        ax.plot([eval_point[0]], [eval_point[1]], marker="o", markersize=8, label="Punto evaluado")
+        ax.plot([eval_point[0]], [eval_point[1]], marker="o", markersize=8,
+                color="#d62728", label="Punto evaluado")
 
     ax.set_title("Grafico de la funcion y sus intersecciones")
     ax.set_xlabel("x")
@@ -233,7 +299,6 @@ def build_figure(expr, dom, xints: List[float], yint: Optional[float], eval_poin
     ax.legend(loc="best")
 
     return fig
-
 
 # ============================================================
 # GUI (Interfaz grafica)
@@ -325,10 +390,12 @@ class App(ctk.CTk):
         xval_str = self.x_entry.get().strip()
         steps = ""
         eval_point = None
+        pair_text = "" # Texto para el punto evaluado
         if xval_str: # Si se ingresa un punto, evaluar la funcion en ese punto
             ok, steps, xnum, ynum = analyzer.evaluate_with_steps(xval_str)
             if ok:
                 eval_point = (xnum, ynum)
+                pair_text = f"Punto evaluado: ({xnum:.6g}, {ynum:.6g})"
 
         # Armar salida de texto
         lines = []
@@ -341,6 +408,8 @@ class App(ctk.CTk):
         lines.append(f"Interseccion con el eje Y: {'y=' + str(yint) if yint is not None else '∅'}\n")
         if steps:
             lines.append("== EVALUACION DETALLADA ==\n" + steps + "\n")
+        if pair_text:
+            lines.append(pair_text + "\n")
         lines.append("== NOTAS ==\n- Si el recorrido simbolico no esta disponible, puede estimarse visualmente en el grafico.\n- El punto evaluado se resalta con un color distinto sin alterar la curva original.")
         self.write("\n".join(lines))
 
